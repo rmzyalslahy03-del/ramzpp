@@ -1,4 +1,4 @@
-// common.js - المنطق الكامل للتطبيق (متوافق مع db.js localStorage)
+// common.js - المنطق الكامل للتطبيق (متوافق مع db.js SQLite)
 
 let currentUser = null;
 let contacts = [];
@@ -32,13 +32,10 @@ function scrollToBottom() {
     if (area) area.scrollTop = area.scrollHeight;
 }
 
-// ========== التهيئة الرئيسية ==========
 document.addEventListener('DOMContentLoaded', async () => {
-    // تهيئة قاعدة البيانات (الآن localStorage، لا تحتاج await حقيقي)
-    await DB.init(); // متوافقة مع الدالة الجديدة التي تحل فورًا
-    console.log('✅ قاعدة البيانات جاهزة');
+    await DB.init();
+    console.log('✅ SQLite جاهزة');
 
-    // ترحيل المستخدم من localStorage إذا لزم
     let user = DB.getUser();
     if (!user) {
         const localUser = localStorage.getItem('ramz_currentUser');
@@ -54,7 +51,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    // تحميل جهات الاتصال
     contacts = DB.getContacts();
     if (contacts.length === 0) {
         contacts = [
@@ -65,7 +61,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         DB.saveContacts(contacts);
     }
 
-    // عرض واجهة التطبيق
     document.getElementById('appContainer').style.display = 'flex';
     setupNavigation();
     showScreen('chats');
@@ -76,7 +71,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('✅ التطبيق جاهز', { currentUser, contactsCount: contacts.length });
 });
 
-// ========== التنقل بين الشاشات ==========
 function setupNavigation() {
     document.querySelectorAll('.nav-item').forEach(btn => {
         btn.addEventListener('click', () => showScreen(btn.dataset.nav));
@@ -103,7 +97,6 @@ function showScreen(screenId) {
     }
 }
 
-// ========== قائمة الدردشات ==========
 function renderChatsList() {
     const container = document.getElementById('chatsList');
     if (!container) return;
@@ -138,7 +131,6 @@ function getChatId(contact) {
     return ids[0] + '_' + ids[1];
 }
 
-// ========== فتح محادثة ==========
 async function openChat(contact) {
     activeChatPartner = contact;
     activeChatId = getChatId(contact);
@@ -152,15 +144,12 @@ async function openChat(contact) {
     renderMessages(localMessages);
     showScreen('chat');
 
-    // إعداد قناة Supabase (إذا كانت Supa متاحة)
     if (typeof Supa !== 'undefined') {
         if (activeChannel) {
             await Supa.removeChannel(activeChannel);
         }
         activeChannel = Supa.createChatChannel(currentUser.id, contact.id);
         Supa.subscribeToChannel(activeChannel, handleIncomingMessage);
-    } else {
-        console.warn('⚠️ Supabase غير متاح، المراسلة الفورية معطلة');
     }
 }
 
@@ -175,7 +164,6 @@ function handleIncomingMessage(payload) {
     }
 }
 
-// ========== عرض الرسائل ==========
 function renderMessages(messages) {
     const area = document.getElementById('messagesArea');
     if (!area) return;
@@ -207,7 +195,6 @@ function addMessageToUI(msg) {
     scrollToBottom();
 }
 
-// ========== إرسال رسالة ==========
 async function sendMessage(text, type = 'text') {
     if (!text.trim()) return;
     const msg = {
@@ -217,13 +204,11 @@ async function sendMessage(text, type = 'text') {
         type: type
     };
 
-    // حفظ محلي فوري
     const messages = DB.getMessages(activeChatId);
     messages.push(msg);
     DB.saveMessages(activeChatId, [msg]);
     addMessageToUI(msg);
 
-    // إرسال عبر القناة إذا كانت متاحة
     if (activeChannel && typeof Supa !== 'undefined') {
         try {
             await Supa.sendBroadcast(activeChannel, msg);
@@ -233,7 +218,6 @@ async function sendMessage(text, type = 'text') {
     }
 }
 
-// ========== إرسال وسائط ==========
 async function sendMedia(file) {
     if (!file) return;
     if (typeof Supa === 'undefined') {
@@ -252,7 +236,6 @@ async function sendMedia(file) {
     }
 }
 
-// ========== قائمة جهات الاتصال ==========
 function renderContactsList() {
     const container = document.getElementById('contactsList');
     if (!container) return;
@@ -272,7 +255,6 @@ function renderContactsList() {
     });
 }
 
-// ========== إعداد المستمعين للأحداث ==========
 function setupEventListeners() {
     const input = document.getElementById('msgInput');
     const sendBtn = document.getElementById('sendMsgBtn');
@@ -304,7 +286,6 @@ function setupEventListeners() {
     });
 }
 
-// ========== دوال عامة ==========
 window.exportData = function() {
     const json = DB.exportAll();
     const blob = new Blob([json], {type: 'application/json'});
