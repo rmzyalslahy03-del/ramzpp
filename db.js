@@ -1,112 +1,246 @@
-// db.js - LocalStorage Database Layer (بديل SQLite)
+// db.js - SQLite Database Layer (sql.js)
 
 const DB = {
-    _ready: true, // جاهز فورًا
+    _db: null,
+    _ready: false,
 
-    // لا يحتاج إلى init() غير متزامنة
     async init() {
-        // دالة وهمية للتوافق مع common.js (لا تفعل شيئًا)
-        return Promise.resolve();
+        if (this._ready) return;
+
+        if (typeof initSqlJs === 'undefined') {
+            throw new Error('مكتبة sql.js لم تُحمّل. تأكد من اتصال الإنترنت أو استخدم Live Server.');
+        }
+
+        const SQL = await initSqlJs({
+            locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.9.0/${file}`
+        });
+
+        const savedData = await this._loadFromStorage();
+        if (savedData) {
+            this._db = new SQL.Database(new Uint8Array(savedData));
+        } else {
+            this._db = new SQL.Database();
+            this._createTables();
+        }
+
+        this._ready = true;
+        this._startAutoSave();
     },
 
-    // ========= المستخدم =========
+    _createTables() {
+        this._db.run(`
+            CREATE TABLE IF NOT EXISTS contacts (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                avatar TEXT,
+                status TEXT,
+                bio TEXT
+            );
+            CREATE TABLE IF NOT EXISTS messages (
+                chat_id TEXT,
+                sender TEXT,
+                text TEXT,
+                timestamp INTEGER,
+                type TEXT DEFAULT 'text',
+                UNIQUE(chat_id, sender, timestamp)
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS current_user (
+                id TEXT PRIMARY KEY,
+                name TEXT
+            );
+        `);
+    },
+
     saveUser(user) {
-        localStorage.setItem('ramz_currentUser', JSON.stringify(user));
+        if (!this._ready) return;
+        this._db.run(`DELETE FROM current_user`);
+        this._db.run(`INSERT INTO current_user (id, name) VALUES (?, ?)`, [user.id, user.name]);
+        this._saveToStorage();
     },
+
     getUser() {
-        const data = localStorage.getItem('ramz_currentUser');
-        return data ? JSON.parse(data) : null;
+        if (!this._ready) return null;
+        const stmt = this._db.prepare(`SELECT * FROM current_user LIMIT 1`);
+        if (stmt.step()) {
+            const row = stmt.getAsObject();
+            return { id: row.id, name: row.name };
+        }
+        return null;
     },
+
     logoutUser() {
-        localStorage.removeItem('ramz_currentUser');
+        if (!this._ready) return;
+        this._db.run(`DELETE FROM current_user`);
+        this._saveToStorage();
     },
 
-    // ========= جهات الاتصال =========
     saveContacts(contacts) {
-        localStorage.setItem('ramz_contacts', JSON.stringify(contacts));
-    },
-    getContacts() {
-        const data = localStorage.getItem('ramz_contacts');
-        return data ? JSON.parse(data) : [];
+        if (!this._ready) return;
+        this._db.run(`DELETE FROM contacts`);
+        const stmt = this._db.prepare(`INSERT INTO contacts VALUES (?, ?, ?, ?, ?)`);
+        contacts.forEach(c => {
+            stmt.run([c.id, c.name, c.avatar || '', c.status || '', c.bio || '']);
+        });
+        stmt.free();
+        this._saveToStorage();
     },
 
-    // ========= الرسائل =========
-    getChatKey(chatId) { return 'ramz_chat_' + chatId; },
+    getContacts() {
+        if (!this._ready) return [];
+        const stmt = this._db.prepare(`SELECT * FROM contacts`);
+        const contacts = [];
+        while (stmt.step()) {
+            contacts.push(stmt.getAsObject());
+        }
+        stmt.free();
+        return contacts;
+    },
+
+    getChatKey(chatId) { return chatId; },
 
     saveMessages(chatId, messages) {
-        const key = this.getChatKey(chatId);
-        const existing = this.getMessages(chatId);
-        // نضيف الرسائل الجديدة فقط (نتجنب التكرار)
-        const merged = [...existing];
+        if (!this._ready) return;
+        const stmt = this._db.prepare(`INSERT OR IGNORE INTO messages (chat_id, sender, text, timestamp, type) VALUES (?, ?, ?, ?, ?)`);
         messages.forEach(msg => {
-            if (!merged.some(m => m.sender === msg.sender && m.timestamp === msg.timestamp)) {
-                merged.push(msg);
-            }
+            stmt.run([chatId, msg.sender, msg.text, msg.timestamp, msg.type || 'text']);
         });
-        localStorage.setItem(key, JSON.stringify(merged));
+        stmt.free();
+        this._saveToStorage();
     },
+
     getMessages(chatId) {
-        const key = this.getChatKey(chatId);
-        const data = localStorage.getItem(key);
-        const msgs = data ? JSON.parse(data) : [];
-        // ترتيب تصاعدي حسب الطابع الزمني
-        return msgs.sort((a, b) => a.timestamp - b.timestamp);
+        if (!this._ready) return [];
+        const stmt = this._db.prepare(`SELECT * FROM messages WHERE chat_id = ? ORDER BY timestamp ASC`, [chatId]);
+        const msgs = [];
+        while (stmt.step()) msgs.push(stmt.getAsObject());
+        stmt.free();
+        return msgs;
     },
 
-    // ========= الإعدادات =========
     saveSetting(key, value) {
-        localStorage.setItem('ramz_setting_' + key, JSON.stringify(value));
-    },
-    getSetting(key, defaultValue) {
-        const data = localStorage.getItem('ramz_setting_' + key);
-        return data !== null ? JSON.parse(data) : defaultValue;
+        if (!this._ready) return;
+        const jsonValue = JSON.stringify(value);
+        this._db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, [key, jsonValue]);
+        this._saveToStorage();
     },
 
-    // ========= تصدير/استيراد =========
-    exportAll() {
-        const exportObj = {};
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key.startsWith('ramz_')) {
-                exportObj[key] = localStorage.getItem(key);
-            }
+    getSetting(key, defaultValue) {
+        if (!this._ready) return defaultValue;
+        const stmt = this._db.prepare(`SELECT value FROM settings WHERE key = ?`, [key]);
+        if (stmt.step()) {
+            const row = stmt.getAsObject();
+            return JSON.parse(row.value);
         }
-        return JSON.stringify(exportObj, null, 2);
+        stmt.free();
+        return defaultValue;
     },
+
+    exportAll() {
+        if (!this._ready) return '{}';
+        const data = {
+            contacts: this.getContacts(),
+            messages: this._getAllMessages(),
+            settings: this._getAllSettings(),
+            currentUser: this.getUser()
+        };
+        return JSON.stringify(data);
+    },
+
     importAll(jsonString) {
         try {
             const data = JSON.parse(jsonString);
-            for (const key in data) {
-                if (key.startsWith('ramz_')) {
-                    localStorage.setItem(key, data[key]);
+            if (data.contacts) this.saveContacts(data.contacts);
+            if (data.messages && data.messages.length) {
+                const chatGroups = {};
+                data.messages.forEach(msg => {
+                    const cid = msg.chat_id;
+                    if (!chatGroups[cid]) chatGroups[cid] = [];
+                    chatGroups[cid].push(msg);
+                });
+                for (const cid in chatGroups) {
+                    this.saveMessages(cid, chatGroups[cid]);
                 }
             }
+            if (data.settings) {
+                const stmt = this._db.prepare(`INSERT OR REPLACE INTO settings VALUES (?, ?)`);
+                for (const key in data.settings) stmt.run([key, JSON.stringify(data.settings[key])]);
+                stmt.free();
+            }
+            if (data.currentUser) this.saveUser(data.currentUser);
+            this._saveToStorage();
             return true;
         } catch (e) {
-            console.error('استيراد فاشل', e);
+            console.error('استيراد فاشل:', e);
             return false;
         }
     },
+
     clearAll() {
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key.startsWith('ramz_')) keysToRemove.push(key);
-        }
-        keysToRemove.forEach(key => localStorage.removeItem(key));
+        if (!this._ready) return;
+        this._db.run(`DELETE FROM messages`);
+        this._db.run(`DELETE FROM contacts`);
+        this._db.run(`DELETE FROM settings`);
+        this._db.run(`DELETE FROM current_user`);
+        this._saveToStorage();
     },
 
-    // دوال إضافية للتوافق مع الكود القديم (إن وُجدت)
     _getAllMessages() {
-        const all = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key.startsWith('ramz_chat_')) {
-                const msgs = JSON.parse(localStorage.getItem(key));
-                all.push(...msgs);
-            }
+        const stmt = this._db.prepare(`SELECT * FROM messages`);
+        const msgs = [];
+        while (stmt.step()) msgs.push(stmt.getAsObject());
+        stmt.free();
+        return msgs;
+    },
+
+    _getAllSettings() {
+        const stmt = this._db.prepare(`SELECT * FROM settings`);
+        const settings = {};
+        while (stmt.step()) {
+            const row = stmt.getAsObject();
+            settings[row.key] = JSON.parse(row.value);
         }
-        return all;
+        stmt.free();
+        return settings;
+    },
+
+    async _loadFromStorage() {
+        return new Promise((resolve) => {
+            const request = indexedDB.open('ramz-sqlite', 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains('database')) db.createObjectStore('database');
+            };
+            request.onsuccess = (e) => {
+                const db = e.target.result;
+                const tx = db.transaction('database', 'readonly');
+                const store = tx.objectStore('database');
+                const getReq = store.get('dbdata');
+                getReq.onsuccess = () => resolve(getReq.result);
+                getReq.onerror = () => resolve(null);
+            };
+            request.onerror = () => resolve(null);
+        });
+    },
+
+    _saveToStorage() {
+        if (!this._ready) return;
+        const data = this._db.export();
+        const buffer = data.buffer;
+        const request = indexedDB.open('ramz-sqlite', 1);
+        request.onsuccess = (e) => {
+            const db = e.target.result;
+            const tx = db.transaction('database', 'readwrite');
+            const store = tx.objectStore('database');
+            store.put(buffer, 'dbdata');
+        };
+    },
+
+    _startAutoSave() {
+        setInterval(() => this._saveToStorage(), 5000);
     }
 };
 
