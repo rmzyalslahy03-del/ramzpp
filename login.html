@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تسجيل الدخول - Ramz-App</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0d0d0d; --surface: #1a1a1a; --text: #fff; --text3: #999; --accent: #ff0050; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg); font-family: 'Cairo', sans-serif;
+            display: flex; align-items: center; justify-content: center;
+            height: 100vh; flex-direction: column; gap: 20px;
+            -webkit-tap-highlight-color: transparent; user-select: none;
+        }
+        .login-logo {
+            font-size: 58px; font-weight: 900;
+            background: linear-gradient(135deg, #ff0050, #ff6b8a);
+            background-size: 200% 200%; -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent; background-clip: text;
+            animation: gradientShift 3s ease infinite;
+        }
+        @keyframes gradientShift {
+            0%,100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        .login-subtitle { color: var(--text3); font-size: 14px; margin-top: -12px; letter-spacing: 1px; }
+        .login-input {
+            width: 300px; padding: 15px 20px; border-radius: 30px;
+            border: 2px solid #2c2c2c; background: #222; color: #fff;
+            font-family: inherit; font-size: 16px; text-align: center;
+            outline: none; transition: 0.3s;
+        }
+        .login-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(255,0,80,0.1); transform: scale(1.02);
+        }
+        .login-btn {
+            width: 300px; padding: 15px; border-radius: 30px; border: none;
+            background: linear-gradient(135deg, #ff0050, #ff6b8a); color: #fff;
+            font-family: inherit; font-size: 17px; font-weight: 700;
+            cursor: pointer; transition: 0.3s; letter-spacing: 1px;
+        }
+        .guest-btn {
+            background: transparent !important;
+            border: 2px solid var(--accent) !important; color: var(--accent) !important;
+        }
+        .login-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(255,0,80,0.4); }
+        .login-btn:active { transform: scale(0.96); }
+        p { color: var(--text3); font-size: 11px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="login-logo">💬 Ramz-App</div>
+    <div class="login-subtitle">تطبيق المراسلة المتكامل</div>
+    <input type="text" class="login-input" id="loginNameInput" placeholder="أدخل اسمك للدخول..." maxlength="25" autocomplete="off">
+    <button class="login-btn" id="loginBtn">🚀 دخول</button>
+    <button class="login-btn guest-btn" id="guestBtn">👤 الدخول كضيف</button>
+    <p>سيتم حفظ حسابك محلياً وستدخل تلقائياً في كل مرة</p>
+
+    <script>
+        function generateUserId() {
+            return 'user_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        function login(name) {
+            if (!name.trim()) {
+                alert('الرجاء إدخال اسم');
+                return;
+            }
+            let user = JSON.parse(localStorage.getItem('ramz_currentUser'));
+            if (!user) {
+                user = { id: generateUserId(), name: name.trim() };
+            } else {
+                user.name = name.trim();
+            }
+            localStorage.setItem('ramz_currentUser', JSON.stringify(user));
+            window.location.href = 'index.html';
+        }
+
+        document.getElementById('loginBtn').addEventListener('click', () => {
+            login(document.getElementById('loginNameInput').value);
+        });
+
+        document.getElementById('guestBtn').addEventListener('click', () => {
+            login('ضيف');
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedUser = JSON.parse(localStorage.getItem('ramz_currentUser'));
+            if (savedUser && savedUser.name) {
+                document.getElementById('loginNameInput').value = savedUser.name;
+            }
+        });
+    </script>
+</body>
+</html>
