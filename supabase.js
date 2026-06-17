@@ -1,10 +1,16 @@
+// supabase.js - وسيط Supabase (اختياري)
+
 const SUPABASE_URL = 'https://serlegwdzjulfcxabxzv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_4_c97KxnG_7HTvfv-pKeNQ_FTlnK6Yx';
 
-const _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let _supabase = null;
+if (typeof window.supabase !== 'undefined') {
+    _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
 
 const Supa = {
     createChatChannel(userId1, userId2) {
+        if (!_supabase) return null;
         const ids = [userId1, userId2].sort();
         const channelName = `chat-${ids[0]}-${ids[1]}`;
         return _supabase.channel(channelName, {
@@ -13,6 +19,7 @@ const Supa = {
     },
 
     async sendBroadcast(channel, payload) {
+        if (!channel) return;
         await channel.send({
             type: 'broadcast',
             event: 'message',
@@ -21,6 +28,7 @@ const Supa = {
     },
 
     subscribeToChannel(channel, onMessage) {
+        if (!channel) return;
         channel.on('broadcast', { event: 'message' }, (event) => {
             onMessage(event.payload);
         }).subscribe((status) => {
@@ -30,12 +38,13 @@ const Supa = {
     },
 
     async removeChannel(channel) {
-        if (channel) {
+        if (channel && _supabase) {
             await _supabase.removeChannel(channel);
         }
     },
 
     async uploadTemporaryFile(file) {
+        if (!_supabase) throw new Error('Supabase غير متاح');
         const fileExt = file.name.split('.').pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
 
@@ -56,6 +65,7 @@ const Supa = {
     },
 
     async deleteFile(fileName) {
+        if (!_supabase) return;
         const { error } = await _supabase.storage
             .from('ramz-images')
             .remove([fileName]);
